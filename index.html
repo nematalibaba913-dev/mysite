@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XP İnventarizasiya v2.0</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    
+    <style>
+        /* Windows XP Ümumi Dizaynı */
+        body {
+            font-family: 'Tahoma', sans-serif;
+            background-color: #3B6EA5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 10px;
+        }
+
+        .xp-window {
+            background-color: #ECE9D8;
+            border: 3px solid #0055EA;
+            border-radius: 8px 8px 0 0;
+            width: 100%;
+            max-width: 450px;
+            box-shadow: 4px 4px 10px rgba(0,0,0,0.5);
+        }
+
+        .title-bar {
+            background: linear-gradient(to bottom, #245EDC 0%, #0038E7 100%);
+            padding: 5px 10px;
+            border-radius: 5px 5px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: white;
+            font-weight: bold;
+            text-shadow: 1px 1px #000;
+        }
+
+        .window-body { padding: 15px; }
+
+        video, canvas, img {
+            width: 100%;
+            border: 2px solid #7F9DB9;
+            margin-bottom: 10px;
+            background: black;
+            display: block;
+            border-radius: 3px;
+        }
+        
+        #preview { display: none; }
+
+        label { font-size: 12px; margin-bottom: 3px; display: block; font-weight: bold; }
+        
+        select {
+            width: 100%;
+            padding: 5px;
+            margin-bottom: 10px;
+            border: 1px solid #7F9DB9;
+            font-family: 'Tahoma', sans-serif;
+        }
+
+        button {
+            width: 100%;
+            padding: 8px;
+            font-family: 'Tahoma', sans-serif;
+            font-size: 14px;
+            color: black;
+            border: 1px solid #003C74;
+            background: linear-gradient(to bottom, #fff 0%, #ECE9D8 100%);
+            border-radius: 3px;
+            cursor: pointer;
+            margin: 5px 0;
+        }
+        
+        button:active { background: #ccc; }
+
+        /* Düymə rəngləri */
+        #addBtn { font-weight: bold; color: #004400; }
+        #exportBtn { font-weight: bold; color: #000044; }
+        #resetBtn { color: red; margin-top: 15px; font-size: 12px; }
+
+        .status-bar {
+            border-top: 1px solid #999;
+            padding: 5px;
+            font-size: 11px;
+            color: #333;
+            background: #ECE9D8;
+            display: flex;
+            justify-content: space-between;
+        }
+    </style>
+</head>
+<body>
+
+<div class="xp-window">
+    <div class="title-bar">
+        <span>İnventar Sistemi v2.0</span>
+        <span style="background:#D74312; width:18px; height:18px; border:1px solid #fff; border-radius:3px;"></span>
+    </div>
+    
+    <div class="window-body">
+        <video id="video" autoplay playsinline></video>
+        <canvas id="canvas" style="display:none;"></canvas>
+        <img id="preview" alt="Ön baxış">
+
+        <button onclick="takePhoto()">📷 Foto Çək</button>
+
+        <label>Əşyanın adı:</label>
+        <select id="itemName">
+            <option value="Masa">Masa</option>
+            <option value="Kreslo">Kreslo</option>
+            <option value="Kompyuter">Kompyuter</option>
+            <option value="Printer">Printer</option>
+            <option value="Şkaf">Şkaf</option>
+            <option value="Kondisioner">Kondisioner</option>
+            <option value="Digər">Digər</option>
+        </select>
+
+        <label>Otağın adı:</label>
+        <select id="roomName">
+            <option value="Qəbul otağı">Qəbul otağı</option>
+            <option value="Direktor otağı">Direktor otağı</option>
+            <option value="Ofis 1">Ofis 1</option>
+            <option value="Ofis 2">Ofis 2</option>
+            <option value="Mətbəx">Mətbəx</option>
+            <option value="Anbar">Anbar</option>
+        </select>
+
+        <button id="addBtn" onclick="addToData()">💾 Siyahıya Əlavə Et</button>
+        <hr style="border: 0; border-top: 1px solid #999; margin: 10px 0;">
+        <button id="exportBtn" onclick="exportToExcel()">📊 Excel-ə Göndər (Export)</button>
+        
+        <button id="resetBtn" onclick="resetData()">⚠ Siyahını Sıfırla</button>
+    </div>
+    
+    <div class="status-bar">
+        <span id="status">Kamera açılır...</span>
+        <span id="countDisplay">0 əşya</span>
+    </div>
+</div>
+
+<script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const status = document.getElementById('status');
+    const countDisplay = document.getElementById('countDisplay');
+    let capturedPhoto = null;
+    let itemsData = [];
+
+    // 1. Səhifə açılan kimi yaddaşı yoxla
+    window.onload = function() {
+        const savedData = localStorage.getItem('inventory_data_v2');
+        if (savedData) {
+            itemsData = JSON.parse(savedData);
+            countDisplay.innerText = `${itemsData.length} əşya`;
+            status.innerText = "Yaddaşdakı siyahı yükləndi.";
+        } else {
+            status.innerText = "Siyahı boşdur.";
+        }
+        startCamera();
+    };
+
+    function startCamera() {
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+            .then(stream => {
+                video.srcObject = stream;
+            })
+            .catch(err => {
+                status.innerText = "Kamera xətası!";
+                console.error(err);
+            });
+    }
+
+    function takePhoto() {
+        const context = canvas.getContext('2d');
+        // Yaddaşda çox yer tutmaması üçün ölçünü optimallaşdırırıq (Max 600px en)
+        const scale = 600 / video.videoWidth;
+        canvas.width = 600;
+        canvas.height = video.videoHeight * scale;
+        
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // JPEG keyfiyyəti 0.6
+        capturedPhoto = canvas.toDataURL('image/jpeg', 0.6); 
+        
+        const preview = document.getElementById('preview');
+        preview.src = capturedPhoto;
+        preview.style.display = "block";
+        video.style.display = "none";
+        status.innerText = "Foto hazır. Əlavə edin.";
+    }
+
+    function addToData() {
+        if (!capturedPhoto) {
+            alert("Zəhmət olmasa, əvvəlcə foto çəkin!");
+            return;
+        }
+
+        const item = document.getElementById('itemName').value;
+        const room = document.getElementById('roomName').value;
+
+        itemsData.push({
+            name: item,
+            location: room,
+            photo: capturedPhoto
+        });
+
+        // 2. LocalStorage-a yazırıq
+        localStorage.setItem('inventory_data_v2', JSON.stringify(itemsData));
+
+        // Reset UI
+        countDisplay.innerText = `${itemsData.length} əşya`;
+        status.innerText = "Əlavə edildi!";
+        capturedPhoto = null;
+        document.getElementById('preview').style.display = "none";
+        video.style.display = "block";
+    }
+
+    // 3. Sıfırlama funksiyası (Parol ilə)
+    function resetData() {
+        const password = prompt("Bütün siyahını silmək üçün parolu daxil edin:");
+        if (password === "1234") {
+            itemsData = [];
+            localStorage.removeItem('inventory_data_v2');
+            countDisplay.innerText = "0 əşya";
+            status.innerText = "Siyahı tam təmizləndi.";
+            alert("Siyahı uğurla silindi.");
+        } else if (password !== null) {
+            alert("Yanlış parol!");
+        }
+    }
+
+    async function exportToExcel() {
+        if (itemsData.length === 0) {
+            alert("Siyahı boşdur!");
+            return;
+        }
+
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet('İnventar');
+
+        // Sütunlar
+        worksheet.columns = [
+            { header: 'Əşyanın Adı', key: 'name', width: 25 },
+            { header: 'Yerləşmə Yeri', key: 'location', width: 25 },
+            { header: 'Miqdar', key: 'unit', width: 10, style: { alignment: { horizontal: 'center' } } },
+            { header: 'Say', key: 'count', width: 10, style: { alignment: { horizontal: 'center' } } },
+            { header: 'Foto', key: 'photo', width: 22 }
+        ];
+
+        // Başlıq stili
+        worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        worksheet.getRow(1).fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FF0055EA' } // XP Mavisi
+        };
+
+        for (let i = 0; i < itemsData.length; i++) {
+            const item = itemsData[i];
+            const rowId = i + 2; // Başlıqdan sonra gələn sətirlər
+
+            const row = worksheet.addRow({
+                name: item.name,
+                location: item.location,
+                unit: 'ədəd',
+                count: 1
+            });
+
+            // 4. Excel Foto Yerləşdirmə Məntiqi (Təkmilləşdirilmiş)
+            row.height = 100; // Sətir hündürlüyünü fix edirik
+            row.alignment = { vertical: 'middle', horizontal: 'left' };
+
+            const imageId = workbook.addImage({
+                base64: item.photo,
+                extension: 'jpeg',
+            });
+
+            // Şəkili dəqiq koordinatla yerləşdiririk (Padding ilə)
+            worksheet.addImage(imageId, {
+                tl: { col: 4.1, row: rowId - 1.1 }, // Sol-Yuxarı (Biraz içəri)
+                br: { col: 4.9, row: rowId - 0.1 }, // Sağ-Aşağı (Biraz içəri)
+                editAs: 'oneCell' // Bu əmr şəkli xanaya bağlayır
+            });
+        }
+
+        const buffer = await workbook.xlsx.writeBuffer();
+        const date = new Date().toISOString().slice(0,10);
+        saveAs(new Blob([buffer]), `Inventar_${date}.xlsx`);
+    }
+</script>
+
+</body>
+</html>
