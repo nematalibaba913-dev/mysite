@@ -36,7 +36,7 @@ export async function adminResults(ctx) {
   view.innerHTML = '<div class="muted">Yüklənir…</div>';
   const { quarters, q } = await pickQuarter(ctx);
   if (!q) { view.innerHTML = '<div class="card empty">Hələ rüb yaradılmayıb. «Rüblər» bölməsindən əlavə edin.</div>'; return; }
-  const [trainers, evals] = await Promise.all([fetchTrainers(true), fetchEvaluations({ quarter_id: q.id })]);
+  const [trainers, evals] = await Promise.all([fetchTrainers(true, q.id), fetchEvaluations({ quarter_id: q.id })]);
   if (!ctx.isCurrent()) return;
   const active = trainers.filter((t) => t.active || evals.some((e) => e.trainer_id === t.id));
   const agg = aggregate(active, evals);
@@ -84,7 +84,7 @@ export async function adminForms(ctx) {
   view.innerHTML = '<div class="muted">Yüklənir…</div>';
   const { quarters, q } = await pickQuarter(ctx);
   if (!q) { view.innerHTML = '<div class="card empty">Rüb yoxdur.</div>'; return; }
-  const [trainers, evals] = await Promise.all([fetchTrainers(true), fetchEvaluations({ quarter_id: q.id })]);
+  const [trainers, evals] = await Promise.all([fetchTrainers(true, q.id), fetchEvaluations({ quarter_id: q.id })]);
   if (!ctx.isCurrent()) return;
   const tf = params.get('t') || ''; const ef = params.get('e') || '';
   const evaluators = [...new Map(evals.map((e) => [e.evaluator_key, e.evaluator_name])).entries()];
@@ -162,7 +162,7 @@ export async function adminTrainers(ctx) {
     <div class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr><th class="ctr">Sıra</th><th>Soyadı, adı, ata adı</th><th>Vəzifə</th><th>Status</th><th></th></tr></thead>
     <tbody>${trainers.map((t) => `<tr><td class="ctr">${t.sort_order}</td><td><b>${esc(t.full_name)}</b></td><td>${esc(t.position)}</td><td>${t.active ? '<span class="badge ok">Aktiv</span>' : '<span class="badge">Deaktiv</span>'}</td>
       <td class="num"><button class="btn ghost sm" data-e="${t.id}">Düzəliş</button> <button class="btn ghost sm" data-tog="${t.id}">${t.active ? 'Deaktiv et' : 'Aktiv et'}</button></td></tr>`).join('')}</tbody></table></div></div>
-    <p class="legend-note">Deaktiv təlimçi yeni qiymətləndirmələrdə görünmür, keçmiş nəticələri isə saxlanılır.</p>`;
+    <p class="legend-note">Deaktiv təlimçi yeni qiymətləndirmələrdə görünmür, keçmiş nəticələri isə saxlanılır. Vəzifə dəyişdikdə bağlı rüblərin nəticə və təqdimatlarında köhnə vəzifə qalır.</p>`;
   const edit = (t) => modal({
     title: t ? 'Təlimçini redaktə et' : 'Yeni təlimçi',
     body: `<label class="f"><span>Soyadı, adı, ata adı</span><input class="inp" id="n" value="${esc(t?.full_name || '')}"></label>
@@ -173,6 +173,20 @@ export async function adminTrainers(ctx) {
       m.querySelector('[data-a=s]').onclick = async () => {
         const row = { full_name: m.querySelector('#n').value.trim(), position: m.querySelector('#p').value, sort_order: Number(m.querySelector('#o').value) || 0 };
         if (row.full_name.length < 3) return toast('Ad daxil edin', 'err');
+        // vəzifə dəyişirsə, köhnə vəzifəni artıq qiymətləndirilmiş rüblər üçün tarixçədə saxla
+        if (t && t.position !== row.position) {
+          const [{ data: ev }, { data: hist }, { data: qs }] = await Promise.all([
+            sb.from('evaluations').select('quarter_id').eq('trainer_id', t.id),
+            sb.from('trainer_positions').select('quarter_id').eq('trainer_id', t.id),
+            sb.from('quarters').select('id,status')]);
+          const has = new Set((hist || []).map((h) => h.quarter_id));
+          const closed = new Set((qs || []).filter((x) => x.status === 'closed').map((x) => x.id));
+          const keep = [...new Set((ev || []).map((e) => e.quarter_id))].filter((id) => closed.has(id) && !has.has(id));
+          if (keep.length) {
+            const { error: he } = await sb.from('trainer_positions').insert(keep.map((quarter_id) => ({ trainer_id: t.id, quarter_id, position: t.position })));
+            if (he) return toast(errMsg(he), 'err');
+          }
+        }
         const { error } = t ? await sb.from('trainers').update(row).eq('id', t.id) : await sb.from('trainers').insert(row);
         if (error) return toast(errMsg(error), 'err');
         close(); toast('Yadda saxlanıldı', 'ok'); adminTrainers(ctx);

@@ -91,7 +91,7 @@ export function draftRecs(agg, prev) {
 
 /* ---------------- Model ---------------- */
 async function buildModel(q, quarters) {
-  const [trainers, evals, texts] = await Promise.all([fetchTrainers(true), fetchEvaluations({ quarter_id: q.id }), fetchReportTexts(q.id)]);
+  const [trainers, evals, texts] = await Promise.all([fetchTrainers(true, q.id), fetchEvaluations({ quarter_id: q.id }), fetchReportTexts(q.id)]);
   const used = trainers.filter((t) => evals.some((e) => e.trainer_id === t.id));
   const agg = aggregate(used, evals);
   // əvvəlki rüb

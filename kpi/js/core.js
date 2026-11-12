@@ -77,12 +77,17 @@ export async function fetchProfile() {
   return data ? { ...data, email: user.email } : null;
 }
 
-export async function fetchTrainers(includeInactive = false) {
+// quarterId verilərsə, təlimçinin həmin rübdəki vəzifəsi (tarixçə) götürülür
+export async function fetchTrainers(includeInactive = false, quarterId = null) {
   let q = sb.from('trainers').select('*').order('sort_order').order('full_name');
   if (!includeInactive) q = q.eq('active', true);
   const { data, error } = await q;
   if (error) throw error;
-  return data;
+  if (!quarterId) return data;
+  const { data: hist, error: e2 } = await sb.from('trainer_positions').select('*').eq('quarter_id', quarterId);
+  if (e2) throw e2;
+  const pos = Object.fromEntries((hist || []).map((h) => [h.trainer_id, h.position]));
+  return data.map((t) => (pos[t.id] ? { ...t, position: pos[t.id] } : t));
 }
 
 export async function fetchQuarters() {
